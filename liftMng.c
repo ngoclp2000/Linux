@@ -32,6 +32,7 @@ typedef struct Request
 {
     int floor;
     int deliveryFloor; // only for floor == 1
+    int alpha;
 } Request;
 
 Request *requestQueue = NULL;
@@ -48,14 +49,14 @@ void signal_handler(int sig)
 Request getRequest(MsgBuffer message)
 {
     Request request;
-    sscanf(message.msg_text, "%d %d", &request.floor, &request.deliveryFloor);
+    sscanf(message.msg_text, "%d %d %d", &request.floor, &request.deliveryFloor, &request.alpha);
     return request;
 }
 
-void send_message_to_panel(int floor, char message[])
+void send_message_to_panel(int floor, char message[], int alpha)
 {
     MsgBuffer message_to_panel;
-    message_to_panel.msg_type = floor + 5;
+    message_to_panel.msg_type = floor + alpha + 5;
     strcpy(message_to_panel.msg_text, message);
 
     msgsnd(msg_id, &message_to_panel, strlen(message_to_panel.msg_text), 0);
@@ -63,11 +64,13 @@ void send_message_to_panel(int floor, char message[])
 
 void performRequest(Request request)
 {
+    isBusy = 1;
     int destication_floor;
     char buf[BUFF_SIZE];
     int sensor, on, flag = 1;
+    send_message_to_panel(1, "trigger", request.alpha);
     // lift-up
-    send_message_to_panel(request.floor, "arrival 0");
+    send_message_to_panel(request.deliveryFloor, "arrival 0", request.alpha);
 
     // So sanh tang hien tai cua thang may va tang nguoi su dung dang o
     if (current_lift_floor < request.floor)
@@ -93,9 +96,9 @@ void performRequest(Request request)
             if (sensor == 6)
             {
                 if (on)
-                    send_message_to_panel(1, "error 1");
+                    send_message_to_panel(1, "error 1", request.alpha);
                 else
-                    send_message_to_panel(1, "error 0");
+                    send_message_to_panel(1, "error 0", request.alpha);
             }
             else if (on)
             {
@@ -106,8 +109,8 @@ void performRequest(Request request)
 
     strcpy(buf, "lift-stop");
     write(mng_ctrl_fifo_fd[0], buf, BUFF_SIZE);
-    // send_message_to_panel(destication_floor, "arrival 1");
-    sleep(3);
+    send_message_to_panel(destication_floor, "arrival 1", request.alpha);
+    sleep(2);
 
     flag = 1;
     // So sanh tang hien tai voi tang nguoi dung muon den
@@ -125,7 +128,7 @@ void performRequest(Request request)
     }
 
     // lift-down
-    send_message_to_panel(request.deliveryFloor, "arrival 0");
+    send_message_to_panel(1, "arrival 0", request.alpha);
     if (flag)
     {
         write(mng_ctrl_fifo_fd[0], buf, BUFF_SIZE);
@@ -137,9 +140,9 @@ void performRequest(Request request)
             if (sensor == 6)
             {
                 if (on)
-                    send_message_to_panel(1, "error 1");
+                    send_message_to_panel(1, "error 1", request.alpha);
                 else
-                    send_message_to_panel(1, "error 0");
+                    send_message_to_panel(1, "error 0", request.alpha);
             }
             else if (on)
             {
@@ -149,8 +152,12 @@ void performRequest(Request request)
     }
     strcpy(buf, "lift-stop");
     write(mng_ctrl_fifo_fd[0], buf, BUFF_SIZE);
-    send_message_to_panel(request.deliveryFloor, "OK");
+    char res[BUFF_SIZE];
+    sprintf(res, "%s %d", "OK", request.deliveryFloor);
+    printf("%d %s\n", request.deliveryFloor, res);
+    send_message_to_panel(request.deliveryFloor, res, request.alpha);
     current_lift_floor = request.deliveryFloor;
+    isBusy = 0;
 }
 
 void *liftCtrlCommunication()
@@ -163,7 +170,7 @@ void *liftCtrlCommunication()
 
     while (1)
     {
-        if (requestQueueSize == 0)
+        if (requestQueueSize == 0 || isBusy)
         {
             sleep(1);
             continue;

@@ -7,6 +7,8 @@
 #include <sys/msg.h>
 #include <semaphore.h>
 #include <pthread.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 
 #define RED "\x1B[31m"
 #define GRN "\x1B[32m"
@@ -16,6 +18,7 @@
 #define MSG_SIZE 100
 #define KEY_FILE_PATH "panel"
 #define ID 'A'
+#define SNAME "/mysem"
 
 int msg_id;
 sem_t state_read; //, state_write;
@@ -23,7 +26,7 @@ sem_t state_read; //, state_write;
 int floor_level = 1;
 int delivery_pressed[5]; // ignore index 0
 int lamp_state = 1;      // 0: off, 1: arrival, 2: error
-
+int alpha = 0;
 typedef struct msg_buffer
 {
     long msg_type;
@@ -52,7 +55,7 @@ void draw_panel()
 
     printf("---\n");
 
-    for (int i = 5; i >= 2; i--)
+    for (int i = 5; i >= 1; i--)
     {
         if (delivery_pressed[i - 1] == 0)
             printf("(" WHT "%d" RESET ")\n", i);
@@ -103,7 +106,7 @@ void *listen_thread()
     while (1)
     {
         memset(&rcv_message, 0, sizeof(rcv_message));
-        msgrcv(msg_id, &rcv_message, MSG_SIZE, floor_level + 5, 0);
+        msgrcv(msg_id, &rcv_message, MSG_SIZE, floor_level + alpha + 5, 0);
 
         if (strcmp(rcv_message.msg_text, "arrival 1") == 0)
         {
@@ -121,6 +124,7 @@ void *listen_thread()
             sscanf(rcv_message.msg_text, "%*s%d", &i);
             delivery_pressed[i - 1] = 0;
             sem_post(&state_read);
+            printf("Here : %d\n", i);
         }
         else if (strcmp(rcv_message.msg_text, "error 1") == 0)
         {
@@ -132,19 +136,25 @@ void *listen_thread()
             lamp_state = 0;
             sem_post(&state_read);
         }
+        else
+        {
+            sem_post(&state_read);
+        }
     }
 }
 
-int main()
+int main(int argc, char *argv[])
 {
     MsgBuffer message;
 
     key_t key = ftok(KEY_FILE_PATH, ID);
     msg_id = msgget(key, 0666 | IPC_CREAT);
     message.msg_type = floor_level;
-
-    sem_init(&state_read, 0, 1);
-
+    sem_init(&state_read, 1, 1);
+    if (argc > 1)
+    {
+        alpha = atoi(argv[1]);
+    }
     pthread_t tid1, tid2;
     pthread_create(&tid1, NULL, &draw_ui, NULL);
     pthread_create(&tid2, NULL, &listen_thread, NULL);
@@ -155,9 +165,9 @@ int main()
 
         if (delivery_pressed[msg_floor.destination_floor - 1] == 0)
         {
-            delivery_pressed[msg_floor.destination_floor - 1] = 1;
             floor_level = msg_floor.destination_floor;
-            sprintf(message.msg_text, "%d %d", msg_floor.current_floor, msg_floor.destination_floor);
+            delivery_pressed[msg_floor.destination_floor - 1] = 1;
+            sprintf(message.msg_text, "%d %d %d", msg_floor.current_floor, msg_floor.destination_floor, alpha);
             msgsnd(msg_id, &message, strlen(message.msg_text), 0);
         }
         sem_post(&state_read);
