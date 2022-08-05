@@ -24,7 +24,7 @@ int current_lift_floor = 1;
 int isBusy = 0;
 typedef struct msg_buffer
 {
-    long msg_type;
+    long int msg_type;
     char msg_text[MSG_SIZE];
 } MsgBuffer;
 
@@ -50,6 +50,7 @@ Request getRequest(MsgBuffer message)
 {
     Request request;
     sscanf(message.msg_text, "%d %d %d", &request.floor, &request.deliveryFloor, &request.alpha);
+    // printf("Received request: %d %d %d\n", request.floor, request.deliveryFloor, request.alpha);
     return request;
 }
 
@@ -58,17 +59,16 @@ void send_message_to_panel(int floor, char message[], int alpha)
     MsgBuffer message_to_panel;
     message_to_panel.msg_type = floor + alpha + 5;
     strcpy(message_to_panel.msg_text, message);
-
+    // printf("Sending message: floor %d alpha: %d, %s\n", floor, alpha, message_to_panel.msg_text);
     msgsnd(msg_id, &message_to_panel, strlen(message_to_panel.msg_text), 0);
 }
 
 void performRequest(Request request)
 {
     isBusy = 1;
-    int destication_floor;
     char buf[BUFF_SIZE];
     int sensor, on, flag = 1;
-    send_message_to_panel(1, "trigger", request.alpha);
+    send_message_to_panel(request.deliveryFloor, "trigger", request.alpha);
     // lift-up
     send_message_to_panel(request.deliveryFloor, "arrival 0", request.alpha);
 
@@ -96,9 +96,9 @@ void performRequest(Request request)
             if (sensor == 6)
             {
                 if (on)
-                    send_message_to_panel(1, "error 1", request.alpha);
+                    send_message_to_panel(request.deliveryFloor, "error 1", request.alpha);
                 else
-                    send_message_to_panel(1, "error 0", request.alpha);
+                    send_message_to_panel(request.deliveryFloor, "error 0", request.alpha);
             }
             else if (on)
             {
@@ -109,7 +109,7 @@ void performRequest(Request request)
 
     strcpy(buf, "lift-stop");
     write(mng_ctrl_fifo_fd[0], buf, BUFF_SIZE);
-    send_message_to_panel(destication_floor, "arrival 1", request.alpha);
+    send_message_to_panel(request.deliveryFloor, "arrival 1", request.alpha);
     sleep(2);
 
     flag = 1;
@@ -128,7 +128,6 @@ void performRequest(Request request)
     }
 
     // lift-down
-    send_message_to_panel(1, "arrival 0", request.alpha);
     if (flag)
     {
         write(mng_ctrl_fifo_fd[0], buf, BUFF_SIZE);
@@ -140,9 +139,9 @@ void performRequest(Request request)
             if (sensor == 6)
             {
                 if (on)
-                    send_message_to_panel(1, "error 1", request.alpha);
+                    send_message_to_panel(request.deliveryFloor, "error 1", request.alpha);
                 else
-                    send_message_to_panel(1, "error 0", request.alpha);
+                    send_message_to_panel(request.deliveryFloor, "error 0", request.alpha);
             }
             else if (on)
             {
@@ -198,7 +197,6 @@ int main()
         memset(&message, 0, sizeof(message));
         msgrcv(msg_id, &message, MSG_SIZE, -5, 0);
         printf("%ld: %s\n", message.msg_type, message.msg_text);
-
         enqueue(getRequest(message));
     }
 

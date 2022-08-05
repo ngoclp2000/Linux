@@ -23,7 +23,7 @@
 int msg_id;
 sem_t state_read; //, state_write;
 
-int floor_level = 1;
+int floor_level = 0;
 int delivery_pressed[5]; // ignore index 0
 int lamp_state = 1;      // 0: off, 1: arrival, 2: error
 int alpha = 0;
@@ -105,40 +105,45 @@ void *listen_thread()
     MsgBuffer rcv_message;
     while (1)
     {
-        memset(&rcv_message, 0, sizeof(rcv_message));
-        msgrcv(msg_id, &rcv_message, MSG_SIZE, floor_level + alpha + 5, 0);
-
-        if (strcmp(rcv_message.msg_text, "arrival 1") == 0)
+        if (floor_level != 0)
         {
-            lamp_state = 1;
-            sem_post(&state_read);
-        }
-        else if (strcmp(rcv_message.msg_text, "arrival 0") == 0)
-        {
-            lamp_state = 0;
-            sem_post(&state_read);
-        }
-        else if (strncmp(rcv_message.msg_text, "OK ", 3) == 0)
-        {
-            int i;
-            sscanf(rcv_message.msg_text, "%*s%d", &i);
-            delivery_pressed[i - 1] = 0;
-            sem_post(&state_read);
-            printf("Here : %d\n", i);
-        }
-        else if (strcmp(rcv_message.msg_text, "error 1") == 0)
-        {
-            lamp_state = 2;
-            sem_post(&state_read);
-        }
-        else if (strcmp(rcv_message.msg_text, "error 0") == 0)
-        {
-            lamp_state = 0;
-            sem_post(&state_read);
-        }
-        else
-        {
-            sem_post(&state_read);
+            memset(&rcv_message, 0, sizeof(rcv_message));
+            printf("Waiting for message with type %d\n", floor_level + alpha + 5);
+            msgrcv(msg_id, &rcv_message, MSG_SIZE, floor_level + alpha + 5, 1);
+            
+            if (strcmp(rcv_message.msg_text, "arrival 1") == 0)
+            {
+                lamp_state = 1;
+                sem_post(&state_read);
+            }
+            else if (strcmp(rcv_message.msg_text, "arrival 0") == 0)
+            {
+                lamp_state = 0;
+                sem_post(&state_read);
+            }
+            else if (strncmp(rcv_message.msg_text, "OK ", 3) == 0)
+            {
+                int i;
+                sscanf(rcv_message.msg_text, "%*s%d", &i);
+                delivery_pressed[i - 1] = 0;
+                floor_level = 0;
+                sem_post(&state_read);
+                // printf("Here : %ld %d\n", rcv_message.msg_type, i);
+            }
+            else if (strcmp(rcv_message.msg_text, "error 1") == 0)
+            {
+                lamp_state = 2;
+                sem_post(&state_read);
+            }
+            else if (strcmp(rcv_message.msg_text, "error 0") == 0)
+            {
+                lamp_state = 0;
+                sem_post(&state_read);
+            }
+            else
+            {
+                sem_post(&state_read);
+            }
         }
     }
 }
@@ -149,7 +154,6 @@ int main(int argc, char *argv[])
 
     key_t key = ftok(KEY_FILE_PATH, ID);
     msg_id = msgget(key, 0666 | IPC_CREAT);
-    message.msg_type = floor_level;
     sem_init(&state_read, 1, 1);
     if (argc > 1)
     {
@@ -162,10 +166,10 @@ int main(int argc, char *argv[])
     while (1)
     {
         MsgFloor msg_floor = getDeliveryFloorInput();
-
         if (delivery_pressed[msg_floor.destination_floor - 1] == 0)
         {
             floor_level = msg_floor.destination_floor;
+            message.msg_type = floor_level;
             delivery_pressed[msg_floor.destination_floor - 1] = 1;
             sprintf(message.msg_text, "%d %d %d", msg_floor.current_floor, msg_floor.destination_floor, alpha);
             msgsnd(msg_id, &message, strlen(message.msg_text), 0);
