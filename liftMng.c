@@ -22,6 +22,7 @@ int msg_id;
 int mng_ctrl_fifo_fd[2]; // 0: write, 1: read
 int current_lift_floor = 1;
 int isBusy = 0;
+int current_alpha = 0;
 typedef struct msg_buffer
 {
     long int msg_type;
@@ -68,6 +69,7 @@ void performRequest(Request request)
     isBusy = 1;
     char buf[BUFF_SIZE];
     int sensor, on, flag = 1;
+    current_alpha = request.alpha;
     send_message_to_panel(request.deliveryFloor, "trigger", request.alpha);
     // lift-up
     send_message_to_panel(request.deliveryFloor, "arrival 0", request.alpha);
@@ -180,6 +182,26 @@ void *liftCtrlCommunication()
     }
 }
 
+void *thread_emergency()
+{
+    char buf[BUFF_SIZE];
+    MsgBuffer message;
+    while (1)
+    {
+        memset(&message, 0, sizeof(message));
+        msgrcv(msg_id, &message, MSG_SIZE, -100, 0);
+        printf("%ld: %s\n", message.msg_type, message.msg_text);
+        int alpha;
+        sscanf(message.msg_text, "%*d %*d %d\n", &alpha);
+        if (current_alpha == alpha)
+        {
+            // thuc hien dung thang may
+            strcpy(buf, "emergency");
+            write(mng_ctrl_fifo_fd[0], buf, BUFF_SIZE);
+        }
+    }
+}
+
 int main()
 {
     signal(SIGINT, signal_handler);
@@ -189,8 +211,9 @@ int main()
     key_t key = ftok(KEY_FILE_PATH, ID);
     msg_id = msgget(key, 0666 | IPC_CREAT);
 
-    pthread_t tid;
+    pthread_t tid, tid1;
     pthread_create(&tid, NULL, &liftCtrlCommunication, NULL);
+    pthread_create(&tid1, NULL, &thread_emergency, NULL);
 
     while (1)
     {

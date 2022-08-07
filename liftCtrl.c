@@ -55,7 +55,7 @@ void liftBody()
             *state = 0;
         }
 
-        printf("%c[2J%c[;H", (char)27, (char)27);
+        //printf("%c[2J%c[;H", (char)27, (char)27);
         printf("Floor\tHeight\n");
         printf("%d\t%.2f m\n", my_round((*height + 1.5) / 3), *height);
         fflush(stdout);
@@ -75,16 +75,21 @@ void *floorSensor(void *arg)
     // shared memory: height
     int shmid = shmget(key, 8, 0660 | IPC_CREAT);
     float *height = (float *)shmat(shmid, (void *)0, 0);
-
+    int *state = (int *)((void *)height + 4);
     char buf[BUFF_SIZE];
     while (1)
     {
         if (floor_height - 0 <= *height && *height <= floor_height + 0)
         {
             sensor_tmp = 1;
+            if (abs(*state) == 2)
+            {
+                *state = 0;
+            }
         }
         else
         {
+
             sensor_tmp = 0;
         }
 
@@ -208,6 +213,17 @@ void liftCtrl()
         else if (strcmp(buf, "lift-stop") == 0)
         {
             *state = 0;
+        }
+        else if (strcmp(buf, "emergency") == 0)
+        {
+            if (*state < 0)
+            {
+                *state = -2;
+            }
+            else if (*state > 0)
+            {
+                *state = 2;
+            }
         }
     }
 }

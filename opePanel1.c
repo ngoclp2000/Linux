@@ -81,6 +81,11 @@ MsgFloor getDeliveryFloorInput()
                 msg_floor.destination_floor = destination_floor;
                 return msg_floor;
             }
+            else if (current_floor == 0)
+            {
+                msg_floor.current_floor = 0;
+                return msg_floor;
+            }
         }
 
         printf("Invalid Floor, try again: ");
@@ -110,7 +115,7 @@ void *listen_thread()
             memset(&rcv_message, 0, sizeof(rcv_message));
             printf("Waiting for message with type %d\n", floor_level + alpha + 5);
             msgrcv(msg_id, &rcv_message, MSG_SIZE, floor_level + alpha + 5, 1);
-            
+
             if (strcmp(rcv_message.msg_text, "arrival 1") == 0)
             {
                 lamp_state = 1;
@@ -169,7 +174,14 @@ int main(int argc, char *argv[])
         if (delivery_pressed[msg_floor.destination_floor - 1] == 0)
         {
             floor_level = msg_floor.destination_floor;
-            message.msg_type = floor_level;
+            if (msg_floor.current_floor == 0)
+            {
+                message.msg_type = 100;
+            }
+            else
+            {
+                message.msg_type = floor_level;
+            }
             delivery_pressed[msg_floor.destination_floor - 1] = 1;
             sprintf(message.msg_text, "%d %d %d", msg_floor.current_floor, msg_floor.destination_floor, alpha);
             msgsnd(msg_id, &message, strlen(message.msg_text), 0);
