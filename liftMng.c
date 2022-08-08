@@ -23,6 +23,7 @@ int mng_ctrl_fifo_fd[2]; // 0: write, 1: read
 int current_lift_floor = 1;
 int isBusy = 0;
 int current_alpha = 0;
+int isEmergency = 0;
 typedef struct msg_buffer
 {
     long int msg_type;
@@ -69,6 +70,7 @@ void performRequest(Request request)
     isBusy = 1;
     char buf[BUFF_SIZE];
     int sensor, on, flag = 1;
+    int closest_floor = 0;
     current_alpha = request.alpha;
     send_message_to_panel(request.deliveryFloor, "trigger", request.alpha);
     // lift-up
@@ -94,6 +96,28 @@ void performRequest(Request request)
         while (cur_floor != request.floor)
         {
             int size = read(mng_ctrl_fifo_fd[1], buf, BUFF_SIZE);
+            // printf("BUFF: %s\n", buf);
+            if (isEmergency == 1)
+            {
+                if (strncmp(buf, "EMERGENCY ", 10) == 0)
+                {
+                    sscanf(buf, "%*s %d", &closest_floor);
+                    printf("Closest floor: %d\n", closest_floor);
+                
+                    char res[BUFF_SIZE];
+                    sprintf(res, "%s", "EMERGENCY");
+
+                    MsgBuffer message_to_panel;
+                    message_to_panel.msg_type = 100;
+                    strcpy(message_to_panel.msg_text, res);
+                    msgsnd(msg_id, &message_to_panel, strlen(message_to_panel.msg_text), 0);
+
+                    current_lift_floor = closest_floor;
+                    isEmergency = 0;
+                    isBusy = 0;
+                    return;
+                }
+            }
             sscanf(buf, "%d%d", &sensor, &on);
             if (sensor == 6)
             {
@@ -136,7 +160,30 @@ void performRequest(Request request)
         memset(buf, 0, sizeof(buf));
         while (cur_floor != request.deliveryFloor)
         {
+                
             int size = read(mng_ctrl_fifo_fd[1], buf, BUFF_SIZE);
+            // printf("BUFF: %s\n", buf);
+            if (isEmergency == 1)
+            {
+                if (strncmp(buf, "EMERGENCY ", 10) == 0)
+                {
+                    sscanf(buf, "%*s %d", &closest_floor);
+                    printf("Closest floor: %d\n", closest_floor);
+                
+                    char res[BUFF_SIZE];
+                    sprintf(res, "%s", "EMERGENCY");
+
+                    MsgBuffer message_to_panel;
+                    message_to_panel.msg_type = 100;
+                    strcpy(message_to_panel.msg_text, res);
+                    msgsnd(msg_id, &message_to_panel, strlen(message_to_panel.msg_text), 0);
+
+                    current_lift_floor = closest_floor;
+                    isEmergency = 0;
+                    isBusy = 0;
+                    return;
+                }
+            }
             sscanf(buf, "%d%d", &sensor, &on);
             if (sensor == 6)
             {
@@ -171,6 +218,40 @@ void *liftCtrlCommunication()
 
     while (1)
     {
+        // printf("Emergency now: %d!\n", isEmergency);
+        // while (isEmergency == 1)
+        // {
+        //     printf("Lift is in emergency mode.\n");
+        //     isBusy = 0;
+        //     char buf[BUFF_SIZE];
+        //     int closest_floor = 0;
+        //     int size = read(mng_ctrl_fifo_fd[1], buf, BUFF_SIZE);
+        //     while (size < 0)
+        //     {
+        //         size = read(mng_ctrl_fifo_fd[1], buf, BUFF_SIZE);
+        //         printf("%s\n", buf);
+        //     }
+
+        //     if (strncmp(buf, "EMERGENCY ", 11) == 0)
+        //     {
+        //         sscanf(buf, "%*s %d", &closest_floor);
+        //         printf("Closest floor: %d\n", closest_floor);
+            
+        //         char res[BUFF_SIZE];
+        //         sprintf(res, "%s", "EMERGENCY");
+
+        //         MsgBuffer message_to_panel;
+        //         message_to_panel.msg_type = 100;
+        //         strcpy(message_to_panel.msg_text, res);
+        //         msgsnd(msg_id, &message_to_panel, strlen(message_to_panel.msg_text), 0);
+
+        //         current_lift_floor = closest_floor;
+        //         isEmergency = 0;
+        //         isBusy = 0;
+        //     }
+        //     sleep(1);
+        // }
+
         if (requestQueueSize == 0 || isBusy)
         {
             sleep(1);
@@ -189,15 +270,19 @@ void *thread_emergency()
     while (1)
     {
         memset(&message, 0, sizeof(message));
-        msgrcv(msg_id, &message, MSG_SIZE, -100, 0);
+        msgrcv(msg_id, &message, MSG_SIZE, 100, 0);
         printf("%ld: %s\n", message.msg_type, message.msg_text);
         int alpha;
         sscanf(message.msg_text, "%*d %*d %d\n", &alpha);
+        // printf("Alpha: %d %d\n", alpha, current_alpha);
         if (current_alpha == alpha)
         {
             // thuc hien dung thang may
+            printf("Emergency! STOP!\n");
             strcpy(buf, "emergency");
             write(mng_ctrl_fifo_fd[0], buf, BUFF_SIZE);
+            isEmergency = 1;
+            // printf("Emergency in thread emergency: %d!\n", isEmergency);
         }
     }
 }

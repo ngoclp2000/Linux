@@ -153,6 +153,26 @@ void *listen_thread()
     }
 }
 
+void *thread_emergency()
+{
+    MsgBuffer message;
+    while (1)
+    {
+        memset(&message, 0, sizeof(message));
+        msgrcv(msg_id, &message, MSG_SIZE, 100, 0);
+        printf("%ld: %s\n", message.msg_type, message.msg_text);
+        
+        if (strcmp(message.msg_text, "EMERGENCY") == 0)
+        {
+           for(int i = 1; i <= 5; i++) //reset state of all client
+           {
+               delivery_pressed[i - 1] = 0;
+           }
+           sem_post(&state_read);
+        }
+    }
+}
+
 int main(int argc, char *argv[])
 {
     MsgBuffer message;
@@ -164,13 +184,15 @@ int main(int argc, char *argv[])
     {
         alpha = atoi(argv[1]);
     }
-    pthread_t tid1, tid2;
+    pthread_t tid1, tid2, tid3;
     pthread_create(&tid1, NULL, &draw_ui, NULL);
     pthread_create(&tid2, NULL, &listen_thread, NULL);
+    pthread_create(&tid3, NULL, &thread_emergency, NULL);
 
     while (1)
     {
         MsgFloor msg_floor = getDeliveryFloorInput();
+        // printf("\nFloor %d - Press button %d\n", msg_floor.current_floor, msg_floor.destination_floor);
         if (delivery_pressed[msg_floor.destination_floor - 1] == 0)
         {
             floor_level = msg_floor.destination_floor;
@@ -181,8 +203,8 @@ int main(int argc, char *argv[])
             else
             {
                 message.msg_type = floor_level;
+                delivery_pressed[msg_floor.destination_floor - 1] = 1;
             }
-            delivery_pressed[msg_floor.destination_floor - 1] = 1;
             sprintf(message.msg_text, "%d %d %d", msg_floor.current_floor, msg_floor.destination_floor, alpha);
             msgsnd(msg_id, &message, strlen(message.msg_text), 0);
         }

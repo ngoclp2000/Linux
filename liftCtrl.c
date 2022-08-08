@@ -43,8 +43,12 @@ void liftBody()
     int *state = (int *)((void *)height + 4);
     *state = 0;
 
+    // isEmergency (0: no, 1: yes)
+    int *isEmergency = (int *)((void *)state + 4);
+    *isEmergency = 0;
+
     // speed = d / t (0.5m / s ~ 0.25m / 0.5s)
-    float d = 0.25, t = 0.5;
+    float d = 0.25, t = 1;
 
     while (1)
     {
@@ -55,12 +59,13 @@ void liftBody()
             *state = 0;
         }
 
-        //printf("%c[2J%c[;H", (char)27, (char)27);
+        printf("%c[2J%c[;H", (char)27, (char)27);
         printf("Floor\tHeight\n");
         printf("%d\t%.2f m\n", my_round((*height + 1.5) / 3), *height);
+        // printf("State: %d %.2f\n", *state, *height + *state*d);
         fflush(stdout);
 
-        usleep(t * 1000000);
+        sleep(t);
     }
 }
 
@@ -68,7 +73,7 @@ void liftBody()
 
 void *floorSensor(void *arg)
 {
-    int floor = *((int *)arg);
+    int floor = (int)(long)arg;
     float floor_height = 3 * floor - 1.5; // tang 5: 13.5      13 <= height <= 14
     int sensor = 0, sensor_tmp;
 
@@ -76,25 +81,35 @@ void *floorSensor(void *arg)
     int shmid = shmget(key, 8, 0660 | IPC_CREAT);
     float *height = (float *)shmat(shmid, (void *)0, 0);
     int *state = (int *)((void *)height + 4);
+    int* isEmergency = (int *)((void *)state + 4);
     char buf[BUFF_SIZE];
     while (1)
     {
-        if (floor_height - 0 <= *height && *height <= floor_height + 0)
+        // printf("is emergency %d\n", *isEmergency);
+        if (floor_height == *height)
         {
             sensor_tmp = 1;
-            if (abs(*state) == 2)
+            if (*isEmergency == 1)
             {
+                sensor = 1;
+                // printf("GO HERE TO STOP...\n");
                 *state = 0;
+                *isEmergency = 0;
+                // send sensor info to liftMng emergency mode
+                sprintf(buf, "%s %d", "EMERGENCY", floor);
+                // printf("%s\n", buf);
+                write(sensor_fifo_fd, buf, strlen(buf) + 1);
+                continue;
             }
         }
         else
         {
-
             sensor_tmp = 0;
         }
 
         if (sensor != sensor_tmp)
         {
+            // printf("GO HERE\n");
             sensor = sensor_tmp;
             // send sensor info to liftMng
             sprintf(buf, "%d %d", floor, sensor);
@@ -118,9 +133,7 @@ void liftSensor()
     for (int i = 1; i <= 5; i++)
     {
         pthread_t tid;
-        int *arg = (int *)calloc(1, sizeof(int));
-        *arg = i;
-        pthread_create(&tid, NULL, &floorSensor, arg);
+        pthread_create(&tid, NULL, &floorSensor, (void*)(long int)i);
     }
 
     // Error Sensor
@@ -170,6 +183,7 @@ void *listen_lift_sensor()
     {
         // receive and forward sensor notify from liftSensor to liftMng
         read(sensor_fifo_fd, buf, BUFF_SIZE);
+        // printf("Read from sensor_fifo_fd: %s\n", buf);
         write(mng_ctrl_fifo_fd[1], buf, BUFF_SIZE);
 
         // force stop on rise-error
@@ -186,6 +200,7 @@ void liftCtrl()
     // shared memory: state
     int shmid = shmget(key, 8, 0660 | IPC_CREAT);
     int *state = (int *)(shmat(shmid, (void *)0, 0) + 4);
+    int* isEmergency = (int *)((void *)state + 4);
 
     // listen sensor notify from liftSensor
     pthread_t tid;
@@ -216,14 +231,7 @@ void liftCtrl()
         }
         else if (strcmp(buf, "emergency") == 0)
         {
-            if (*state < 0)
-            {
-                *state = -2;
-            }
-            else if (*state > 0)
-            {
-                *state = 2;
-            }
+            *isEmergency = 1; // turn on emergency mode
         }
     }
 }
